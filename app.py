@@ -1,57 +1,74 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List
-import openpyxl
+import pandas as pd
 
+# Defining the Pydantic Model
 class Race(BaseModel):
     year: int
     winner: str
     country: str
 
 app = FastAPI()
-wb = openpyxl.load_workbook("data/tour_de_france.xlsx")
-sheet = wb.active
+#  Read Data from Excel
+def read_race_data(file_path: str):
+    data = pd.read_excel(file_path, header=None, names=["year", "winner", "country"])
+    return data
 
-def row_to_race(row):
-    return Race(year=row[0].value, winner=row[1].value, country=row[2].value)
+# Create Endpoints
+@app.get("/")
+async def read_root():
+    return {"message": "Welcome to the Tour de France API"}
 
-# Endpoint to retrieve all races
-@app.get("/Race/", response_model=List[Race])
+@app.get("/races/")
 async def read_races():
-    races = [row_to_race(row) for row in sheet.iter_rows(min_row=2, values_only=True)]
+    # Implement CRUD Operations (Read)
+    races_data = read_race_data('data/tour_de_france.xlsx')
+    races = races_data.to_dict(orient='records')
     return races
 
-# Endpoint to retrieve a specific race by year
-@app.get("/Race/{year}", response_model=Race)
+@app.get("/races/{year}")
 async def read_race(year: int):
-    for row in sheet.iter_rows(min_row=2, values_only=True):
-        if row[0] == year:
-            return row_to_race(row)
+    # Step 4: Implement CRUD Operations (Read)
+    races_data = read_race_data('data/tour_de_france.xlsx')
+    race = races_data.to_dict(orient='records')
+    if not race:
+        raise HTTPException(status_code=404, detail="Race not found")
+    return race[0]
 
-# Endpoint to create a new race
-@app.post("/Race/")
+
+@app.post("/races/")
 async def create_race(race: Race):
-    sheet.append([race.year, Race.winner, Race.country])
-    wb.save("data/tour_de_france.xlsx")
-    return Race
+    # Step 4: Implement CRUD Operations (Create)
+    races_data = read_race_data('data/tour_de_france.xlsx')
+    new_race = pd.DataFrame([race.dict()])
+    races_data = races_data.append(new_race, ignore_index=True)
+    races_data.to_excel('data/tour_de_france.xlsx', index=False)
+    return race.dict()
 
-# Endpoint to update an existing race
-@app.put("/Race/{year}")
-async def update_race(year: int, Race: Race):
-    for row in sheet.iter_rows(min_row=2, values_only=True):
-        if row[0] == year:
-            row[1] = Race.winner
-            row[2] = Race.country
-            wb.save("data/tour_de_france.xlsx")
-            return Race
-    raise HTTPException(status_code=404, detail="Race not found")
+@app.put("/races/{year}")
+async def update_race(year: int, race: Race):
+    # Step 4: Implement CRUD Operations (Update)
+    races_data = read_race_data('data/tour_de_france.xlsx')
+    race_index = races_data[races_data['year'] == year].index
+    if race_index.empty:
+        raise HTTPException(status_code=404, detail="Race not found")
+    races_data.loc[race_index, ['winner', 'country']] = race.winner, race.country
+    races_data.to_excel('data/tour_de_france.xlsx', index=False)
+    return {"message": "Race updated successfully"}
 
-# Endpoint to delete a race
-@app.delete("/Race/{year}")
+
+@app.delete("/races/{year}")
 async def delete_race(year: int):
-    for idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
-        if row[0] == year:
-            sheet.delete_race(idx)
-            wb.save("data/tour_de_france.xlsx")
-            return {"message": "Race deleted successfully"}
-    raise HTTPException(status_code=404, detail="Race not found")
+    # Step 4: Implement CRUD Operations (Delete)
+    races_data = read_race_data('data/tour_de_france.xlsx')
+    race_index = races_data.index
+    if race_index.empty:
+        raise HTTPException(status_code=404, detail="Race not found")
+    races_data.drop(race_index, inplace=True)
+    races_data.to_excel('data/tour_de_france.xlsx', index=False)
+    return {"message": "Race deleted successfully"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
